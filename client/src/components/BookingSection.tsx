@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,7 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useSlots } from '@/hooks/useSlots';
 import { initiateRazorpayPayment } from '@/lib/razorpay';
-import { createBooking } from '@/lib/firebase';
+import { createBooking, getSlotPrices } from '@/lib/firebase';
 import { sendBookingConfirmation } from '@/lib/emailjs';
 import { sendWhatsAppNotification } from '@/lib/whatsapp';
 import { BookingFormData } from '@/types';
@@ -30,13 +30,6 @@ const bookingSchema = z.object({
   timeSlot: z.string().min(1, 'Please select a time slot'),
 });
 
-const SPORT_PRICES = {
-  cricket: 800,
-  football: 1000,
-  badminton: 600,
-  basketball: 700,
-};
-
 interface BookingSectionProps {
   onBookingSuccess: (bookingData: any) => void;
 }
@@ -44,7 +37,9 @@ interface BookingSectionProps {
 export default function BookingSection({ onBookingSuccess }: BookingSectionProps) {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
-  
+  const [prices, setPrices] = useState<Record<string, number> | null>(null);
+  const [pricesLoading, setPricesLoading] = useState(true);
+
   const form = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
@@ -63,6 +58,22 @@ export default function BookingSection({ onBookingSuccess }: BookingSectionProps
   
   const { slots, loading: slotsLoading, error: slotsError } = useSlots(watchedDate, watchedSport);
 
+  // Fetch prices from Firestore on mount
+  useEffect(() => {
+    const fetchPrices = async () => {
+      setPricesLoading(true);
+      try {
+        const firestorePrices = await getSlotPrices();
+        setPrices(firestorePrices);
+      } catch (error) {
+        setPrices(null);
+      } finally {
+        setPricesLoading(false);
+      }
+    };
+    fetchPrices();
+  }, []);
+
   const generateBookingId = () => {
     const timestamp = Date.now().toString(36);
     const randomStr = Math.random().toString(36).substr(2, 5);
@@ -73,7 +84,7 @@ export default function BookingSection({ onBookingSuccess }: BookingSectionProps
     setIsProcessing(true);
     try {
       const bookingId = generateBookingId();
-      const amount = SPORT_PRICES[data.sportType as keyof typeof SPORT_PRICES];
+      const amount = prices && data.sportType ? prices[data.sportType] : 0;
       
       const bookingData = {
         ...data,
@@ -142,7 +153,7 @@ export default function BookingSection({ onBookingSuccess }: BookingSectionProps
   };
 
   const selectedSport = watchedSport;
-  const totalAmount = selectedSport ? SPORT_PRICES[selectedSport as keyof typeof SPORT_PRICES] : 0;
+  const totalAmount = selectedSport && prices ? prices[selectedSport] : 0;
 
   return (
     <section id="booking" className="py-20 bg-white">
@@ -160,6 +171,11 @@ export default function BookingSection({ onBookingSuccess }: BookingSectionProps
           </p>
         </motion.div>
 
+        {pricesLoading ? (
+          <div className="flex justify-center py-12">
+            <LoadingSpinner size="lg" />
+          </div>
+        ) : (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -234,10 +250,10 @@ export default function BookingSection({ onBookingSuccess }: BookingSectionProps
                         <SelectValue placeholder="Select a sport" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="cricket">Cricket - ₹800/hour</SelectItem>
-                        <SelectItem value="football">Football - ₹1000/hour</SelectItem>
-                        <SelectItem value="badminton">Badminton - ₹600/hour</SelectItem>
-                        <SelectItem value="basketball">Basketball - ₹700/hour</SelectItem>
+                        <SelectItem value="cricket">Cricket - ₹{prices?.cricket ?? ''}/hour</SelectItem>
+                        <SelectItem value="football">Football - ₹{prices?.football ?? ''}/hour</SelectItem>
+                        <SelectItem value="badminton">Badminton - ₹{prices?.badminton ?? ''}/hour</SelectItem>
+                        <SelectItem value="basketball">Basketball - ₹{prices?.basketball ?? ''}/hour</SelectItem>
                       </SelectContent>
                     </Select>
                     {form.formState.errors.sportType && (
@@ -368,6 +384,7 @@ export default function BookingSection({ onBookingSuccess }: BookingSectionProps
             </CardContent>
           </Card>
         </motion.div>
+        )}
       </div>
     </section>
   );
