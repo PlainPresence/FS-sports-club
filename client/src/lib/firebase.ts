@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { getFirestore, collection, addDoc, query, where, getDocs, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, query, where, getDocs, orderBy, Timestamp, doc, updateDoc, setDoc, QueryDocumentSnapshot } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "demo-api-key",
@@ -141,6 +141,39 @@ export const createBlockedDate = async (dateData: any) => {
     });
     return { success: true, id: docRef.id };
   } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Slot Prices Management
+export const getSlotPrices = async () => {
+  try {
+    const pricesSnapshot = await getDocs(collection(db, "slotPrices"));
+    const prices: Record<string, number> = {};
+    pricesSnapshot.forEach((docSnap: QueryDocumentSnapshot<{ price: number }>) => {
+      prices[docSnap.id] = docSnap.data().price;
+    });
+    return prices;
+  } catch (error: any) {
+    throw new Error(error.message);
+  }
+};
+
+export const updateSlotPrice = async (sport: string, price: number) => {
+  try {
+    const priceRef = doc(db, "slotPrices", sport);
+    await updateDoc(priceRef, { price });
+    return { success: true };
+  } catch (error: any) {
+    // If doc doesn't exist, create it
+    if (error.code === 'not-found' || error.message?.includes('No document to update')) {
+      try {
+        await setDoc(doc(db, "slotPrices", sport), { price });
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    }
     return { success: false, error: error.message };
   }
 };
