@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,8 @@ import { useAuthContext } from '@/context/AuthContext';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import BlockSlotModal from '@/components/BlockSlotModal';
 import BlockDateModal from '@/components/BlockDateModal';
+import { updateBooking } from '@/lib/firebase';
+import { BookingData } from '@/types';
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -21,6 +23,9 @@ export default function AdminDashboard() {
   const [searchFilter, setSearchFilter] = useState('');
   const [showBlockSlotModal, setShowBlockSlotModal] = useState(false);
   const [showBlockDateModal, setShowBlockDateModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingAmount, setEditingAmount] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
   
   const { bookings, loading: bookingsLoading, refetch } = useBookings({
     dateFilter,
@@ -78,6 +83,46 @@ export default function AdminDashboard() {
     });
   };
 
+  const handleEditClick = (booking: BookingData) => {
+    setEditingId(booking.id);
+    setEditingAmount(booking.amount);
+  };
+
+  const handleEditCancel = () => {
+    setEditingId(null);
+    setEditingAmount(null);
+  };
+
+  const handleEditSave = async (booking: BookingData) => {
+    if (!booking.id || editingAmount == null || isNaN(editingAmount)) return;
+    setSaving(true);
+    const result = await updateBooking(booking.id, { amount: editingAmount });
+    setSaving(false);
+    if (result.success) {
+      toast({ title: 'Price Updated', description: 'Booking price updated successfully.' });
+      setEditingId(null);
+      setEditingAmount(null);
+      refetch();
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to update price.', variant: 'destructive' });
+    }
+  };
+
+  const handleCancelBooking = async (booking: BookingData) => {
+    if (!booking.id) return;
+    const confirmed = window.confirm('Are you sure you want to cancel this booking?');
+    if (!confirmed) return;
+    setSaving(true);
+    const result = await updateBooking(booking.id, { paymentStatus: 'cancelled' });
+    setSaving(false);
+    if (result.success) {
+      toast({ title: 'Booking Cancelled', description: 'The booking has been cancelled.' });
+      refetch();
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to cancel booking.', variant: 'destructive' });
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-IN', {
       year: 'numeric',
@@ -99,9 +144,9 @@ export default function AdminDashboard() {
 
   // Calculate stats
   const today = new Date().toISOString().split('T')[0];
-  const todayBookings = bookings.filter(booking => booking.date === today);
-  const todayRevenue = todayBookings.reduce((sum, booking) => sum + (booking.amount || 0), 0);
-  const confirmedBookings = bookings.filter(booking => booking.paymentStatus === 'success');
+  const todayBookings = bookings.filter((booking: BookingData) => booking.date === today);
+  const todayRevenue = todayBookings.reduce((sum: number, booking: BookingData) => sum + (booking.amount || 0), 0);
+  const confirmedBookings = bookings.filter((booking: BookingData) => booking.paymentStatus === 'success');
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -194,7 +239,7 @@ export default function AdminDashboard() {
                   <i className="fas fa-chart-line text-blue-600 text-xl"></i>
                 </div>
                 <div className="ml-4">
-                  <div className="text-2xl font-bold text-gray-900">₹{bookings.reduce((sum, b) => sum + (b.amount || 0), 0).toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-gray-900">₹{bookings.reduce((sum: number, b: BookingData) => sum + (b.amount || 0), 0).toLocaleString()}</div>
                   <div className="text-sm text-gray-600">Total Revenue</div>
                 </div>
               </div>
@@ -255,14 +300,14 @@ export default function AdminDashboard() {
                   <Input 
                     type="date"
                     value={dateFilter}
-                    onChange={(e) => handleDateFilter(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleDateFilter(e.target.value)}
                     className="h-10"
                     placeholder="Filter by date"
                   />
                   <Input 
                     type="text"
                     value={searchFilter}
-                    onChange={(e) => handleSearch(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
                     placeholder="Search by phone or booking ID"
                     className="h-10 md:w-64"
                   />
@@ -289,26 +334,64 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {bookings.map((booking: any) => (
-                        <tr key={booking.id} className="hover:bg-gray-50 transition-colors">
+                      {bookings.map((booking: BookingData, idx: number) => (
+                        <tr key={booking.id || idx} className="hover:bg-gray-50 transition-colors">
                           <td className="px-6 py-4 text-sm font-medium text-gray-900">{booking.bookingId}</td>
                           <td className="px-6 py-4 text-sm text-gray-900">{booking.fullName}</td>
                           <td className="px-6 py-4 text-sm text-gray-900">{booking.mobile}</td>
                           <td className="px-6 py-4 text-sm text-gray-900 capitalize">{booking.sportType}</td>
                           <td className="px-6 py-4 text-sm text-gray-900">{formatDate(booking.date)}</td>
                           <td className="px-6 py-4 text-sm text-gray-900">{formatTimeSlot(booking.timeSlot)}</td>
-                          <td className="px-6 py-4 text-sm font-medium text-green-600">₹{booking.amount}</td>
+                          <td className="px-6 py-4 text-sm font-medium text-green-600">
+                            {editingId === booking.id ? (
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={editingAmount ?? ''}
+                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditingAmount(Number(e.target.value))}
+                                  className="border rounded px-2 py-1 w-20"
+                                  disabled={saving}
+                                />
+                                <Button size="sm" onClick={() => handleEditSave(booking)} disabled={saving}>
+                                  Save
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={handleEditCancel} disabled={saving}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-2">
+                                ₹{booking.amount}
+                                <button
+                                  className="text-blue-500 hover:text-blue-700 focus:outline-none"
+                                  onClick={() => handleEditClick(booking)}
+                                  title="Edit Price"
+                                >
+                                  <i className="fas fa-edit"></i>
+                                </button>
+                              </div>
+                            )}
+                          </td>
                           <td className="px-6 py-4">
                             <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
                               booking.paymentStatus === 'success' 
                                 ? 'bg-green-100 text-green-800'
                                 : booking.paymentStatus === 'pending'
                                   ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-red-100 text-red-800'
+                                  : booking.paymentStatus === 'failed'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-gray-200 text-gray-700'
                             }`}>
                               {booking.paymentStatus === 'success' ? 'Confirmed' : 
-                               booking.paymentStatus === 'pending' ? 'Pending' : 'Failed'}
+                               booking.paymentStatus === 'pending' ? 'Pending' : 
+                               booking.paymentStatus === 'failed' ? 'Failed' : 'Cancelled'}
                             </span>
+                            {(booking.paymentStatus !== 'cancelled' && booking.paymentStatus !== 'failed') && (
+                              <Button size="sm" variant="outline" className="ml-2" onClick={() => handleCancelBooking(booking)} disabled={saving}>
+                                Cancel
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       ))}
