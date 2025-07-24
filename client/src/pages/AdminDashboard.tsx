@@ -11,7 +11,7 @@ import { useAuthContext } from '@/context/AuthContext';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import BlockSlotModal from '@/components/BlockSlotModal';
 import BlockDateModal from '@/components/BlockDateModal';
-import { updateBooking } from '../lib/firebase';
+import { updateBooking } from '@/lib/firebase';
 import { BookingData } from '@/types';
 
 export default function AdminDashboard() {
