@@ -11,7 +11,7 @@ import { useAuthContext } from '@/context/AuthContext';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import BlockSlotModal from '@/components/BlockSlotModal';
 import BlockDateModal from '@/components/BlockDateModal';
-import { updateBooking } from '@/lib/firebase';
+import { updateBooking, getSlotPrices, updateSlotPrice } from '@/lib/firebase';
 import { BookingData } from '@/types';
 
 export default function AdminDashboard() {
@@ -27,10 +27,41 @@ export default function AdminDashboard() {
   const [editingAmount, setEditingAmount] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   
+  // Slot Prices State
+  const [slotPrices, setSlotPrices] = useState<Record<string, number> | null>(null);
+  const [slotPricesLoading, setSlotPricesLoading] = useState(true);
+  const [slotPricesEdit, setSlotPricesEdit] = useState<Record<string, number>>({});
+  const [slotPricesSaving, setSlotPricesSaving] = useState<Record<string, boolean>>({});
+
+  // List of sports (ensure these match your Firestore doc IDs)
+  const sports = [
+    { id: 'cricket', label: 'Cricket' },
+    { id: 'football', label: 'Football' },
+    { id: 'badminton', label: 'Badminton' },
+    { id: 'basketball', label: 'Basketball' },
+  ];
+
   const { bookings, loading: bookingsLoading, refetch } = useBookings({
     dateFilter,
     searchFilter,
   });
+
+  // Fetch slot prices on mount
+  useEffect(() => {
+    const fetchPrices = async () => {
+      setSlotPricesLoading(true);
+      try {
+        const prices = await getSlotPrices();
+        setSlotPrices(prices);
+        setSlotPricesEdit(prices);
+      } catch (error: any) {
+        toast({ title: 'Error', description: error.message || 'Failed to fetch slot prices', variant: 'destructive' });
+      } finally {
+        setSlotPricesLoading(false);
+      }
+    };
+    fetchPrices();
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -120,6 +151,35 @@ export default function AdminDashboard() {
       refetch();
     } else {
       toast({ title: 'Error', description: result.error || 'Failed to cancel booking.', variant: 'destructive' });
+    }
+  };
+
+  // Handler for editing slot price input
+  const handleSlotPriceChange = (sport: string, value: string) => {
+    setSlotPricesEdit((prev) => ({ ...prev, [sport]: Number(value) }));
+  };
+
+  // Handler for saving slot price
+  const handleSlotPriceSave = async (sport: string) => {
+    setSlotPricesSaving((prev) => ({ ...prev, [sport]: true }));
+    try {
+      const price = slotPricesEdit[sport];
+      if (isNaN(price) || price <= 0) {
+        toast({ title: 'Invalid Price', description: 'Please enter a valid price.', variant: 'destructive' });
+        setSlotPricesSaving((prev) => ({ ...prev, [sport]: false }));
+        return;
+      }
+      const result = await updateSlotPrice(sport, price);
+      if (result.success) {
+        toast({ title: 'Price Updated', description: `${sport.charAt(0).toUpperCase() + sport.slice(1)} price updated successfully.` });
+        setSlotPrices((prev) => ({ ...prev, [sport]: price }));
+      } else {
+        toast({ title: 'Error', description: result.error || 'Failed to update price.', variant: 'destructive' });
+      }
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to update price.', variant: 'destructive' });
+    } finally {
+      setSlotPricesSaving((prev) => ({ ...prev, [sport]: false }));
     }
   };
 
@@ -282,6 +342,62 @@ export default function AdminDashboard() {
                   Export Data
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Slot Prices Management */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+        >
+          <Card className="shadow-lg mb-8">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Edit Slot Prices</h2>
+              {slotPricesLoading ? (
+                <div className="flex justify-center py-8">
+                  <LoadingSpinner size="lg" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Sport</th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Price (₹/hour)</th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {sports.map((sport) => (
+                        <tr key={sport.id}>
+                          <td className="px-6 py-4 text-sm text-gray-900 font-medium">{sport.label}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">
+                            <input
+                              type="number"
+                              min={0}
+                              value={slotPricesEdit[sport.id] ?? ''}
+                              onChange={(e) => handleSlotPriceChange(sport.id, e.target.value)}
+                              className="border rounded px-2 py-1 w-24"
+                              disabled={slotPricesSaving[sport.id]}
+                            />
+                          </td>
+                          <td className="px-6 py-4 text-sm">
+                            <Button
+                              size="sm"
+                              onClick={() => handleSlotPriceSave(sport.id)}
+                              disabled={slotPricesSaving[sport.id] || slotPricesEdit[sport.id] === slotPrices?.[sport.id]}
+                            >
+                              {slotPricesSaving[sport.id] ? 'Saving...' : 'Save'}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
