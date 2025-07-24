@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { getFirestore, collection, addDoc, query, where, getDocs, orderBy, Timestamp } from "firebase/firestore";
+import { getFirestore, collection, addDoc, query, where, getDocs, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "demo-api-key",
@@ -69,6 +69,16 @@ export const getBookings = async (filters?: { date?: string; search?: string }) 
     return bookings;
   } catch (error: any) {
     throw new Error(error.message);
+  }
+};
+
+export const updateBooking = async (bookingId: string, updates: Partial<{ amount: number; paymentStatus: string }>) => {
+  try {
+    const bookingRef = doc(db, "bookings", bookingId);
+    await updateDoc(bookingRef, updates);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
   }
 };
 
